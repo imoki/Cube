@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title></title>
+  <style>
+    .grid {
+      border-collapse: collapse;
+    }
+
+    .grid-item {
+      width: 7px;
+      height: 7px;
+      background-color: #ccc;
+      border: 1px solid #999;
+    }
+
+    div {
+      margin: 10px;
+      float: left;
+    }
+
+    .flex-container {
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    .flex-item {
+      width: 10%;
+    }
+
+    .data_output_binary {
+      position: flexed;
+      float: left;
+      width: 550px;
+      height: 120px;
+      margin: 10px;
+      padding: 10px;
+      bottom: 0px;
+    }
+
+    .data_output_hex {
+      position: flexed;
+      float: left;
+      width: 200px;
+      height: 120px;
+      margin: 10px;
+      padding: 10px;
+      bottom: 0px;
+    }
+
+    .data_button {
+      margin: 5px;
+      margin-right: 10px;
+      padding: 2px;
+      width: 60px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- <div class="flex-container"> -->
+  <div>
+    <table class="grid" id="grid-table"></table>
+  </div>
+  <!-- </div> -->
+  <div>
+    <textarea class="data_output_binary" id="output-box" disabled placeholder="二进制数据信息显示面板"></textarea>
+    <textarea class="data_output_hex" id="output-box-hex" disabled placeholder="十六进制数据信息显示面板"></textarea>
+    <div style="display: flex; flex-direction: column;">
+      <button id="button_1" class="data_button">拍摄(S)</button>
+      <button id="button_2" class="data_button">清屏(X)</button>
+      <button id="button_3" class="data_button">退一(Z)</button>
+      <button id="button_4" class="data_button">进一(Q)</button>
+    </div>
+    <div style="display: flex; flex-direction: column;">
+      <button id="button_5" class="data_button">导入</button>
+      <button id="button_6" class="data_button">播放</button>
+      <button id="button_7" class="data_button">导出(D)</button>
+    </div>
+  </div>
+
+  <script>
+    const { remote } = require('electron');
+    const fs = remote.require('fs');
+    const { ipcRenderer } = require('electron');
+
+    const outputBox = document.getElementById('output-box');
+    const outputBoxHex = document.getElementById('output-box-hex');
+    const button_1 = document.getElementById('button_1');
+    const button_2 = document.getElementById('button_2');
+    const button_3 = document.getElementById("button_3").disabled = true; // 暂时未启用
+    const button_4 = document.getElementById("button_4").disabled = true;
+    const button_5 = document.getElementById("button_5").disabled = true;
+    const button_6 = document.getElementById("button_6").disabled = true;
+    const button_7 = document.getElementById('button_7');
+
+
+    let num = 0;  // 计算当前是第几个led
+    // 坐标(x,y,z)
+    let x = 7;  // 有初始值，为了后面赋值用
+    let y = 0;
+    let z = 7;
+
+    // 8号字节，片z,默认最高位为11111110，11111101,...,01111111
+    // let cubehigh = ["11111110", "11111101", "11111011", "11110111"
+    // , "11101111", "11011111", "10111111", "01111111"];
+
+    // 存放每个led灯信息
+    // 8*9的数组，8行9列，每一行代表某一片z，从0-7。
+    // 某一列代表代表x，由0-7，每个元素里的位数代表y，由0-7
+    // cube[0]代表第0片（x,y,0），cube[0][0],代表（0,y,0）,默认值cube[0][8]="11111110"
+    // cube[7]代表第7片（x,y,7）,cube[7][0],代表（0,y,7）,默认值cube[7][8]="01111111"
+    let cube = new Array(8);
+    for (let i = 0; i < 8; i++) {
+      cube[i] = new Array(9);
+      for (let j = 0; j < 9; j++) {
+        cube[i][j] = "00000000";
+        if (j == 8) {
+          cube[i][j] = "11111111";
+          let temp = cube[i][j].split(""); // 将字符串转换成字符数组
+          temp[temp.length - i - 1] = "0"; // 将第三个位置设置成 1,从后往前
+          cube[i][j] = temp.join(""); // 将字符数组转换成字符串
+        }
+      }
+    }
+    // console.log(cube)
+
+    // 加载led
+    for (let i = 0; i < 24; i++) {
+      if (i % 8 == 0) {
+        const p = document.createElement('p')
+        if (i == 0) {
+          p.innerHTML = '正视图';
+        } else if (i == 8) {
+          p.innerHTML = '侧视图';
+        } else {
+          p.innerHTML = '俯视图';
+        }
+        p.style.float = "left";
+        // p.style.top = '50%';
+        // p.style.left = '50%';
+        p.style.marginLeft = "5px";
+        p.style.marginTop = "30px";
+        p.style.marginRight = "10px";
+        p.style.writingMode = 'vertical-rl';
+        // p.textContent = '正视图';
+        document.body.appendChild(p);
+      } else {
+        // 将 table 元素添加到文档中
+        // document.body.appendChild(table);
+      }
+      // 创建一个新的 div 元素
+      const div = document.createElement('div');
+      // div.className = "flex-item";
+      // 创建 table 元素
+      const table = document.createElement('table');
+      // table.style.margin = '10px'; // 给表格添加外边距
+      // table.setAttribute('style', 'margin: 20px;'); // 给表格添加外边距
+
+      // 8*8 
+      // 循环创建 8 行
+      for (let j = 0; j < 8; j++) {
+        // 创建 tr 元素
+        const tr = document.createElement('tr');
+        // 循环创建 8 列
+        for (let k = 0; k < 8; k++) {
+          // 创建 td 元素
+          var td = document.createElement("td");
+          td.className = "grid-item"; // 设置 class 属性
+          if (i < 8) // 0-7,正视图
+          {
+            if (num != 0) {
+              if (num % 64 == 0) {
+                x--; // 每过一个8*8。则x走向下一个8*8。x由7->0
+                y = 0;  // 初始化
+                z = 7;  // 初始化
+              } else {
+                y++;
+                if (y % 8 == 0)  // 走过一行
+                {
+                  z--;
+                  y = 0; // 初始化
+                }
+              }
+
+            }
+          } else if (i < 16) // 8-15，左视图
+          {
+            if (num != 0) {
+              if (num % 64 == 0) {
+                y++; // 每过一个8*8。则y走向下一个8*8。y由0->7
+                x = 0;  // 初始化
+                z = 7;  // 初始化
+              } else {
+                x += 1;
+                if (x % 8 == 0)  // 走过一行
+                {
+                  z--;
+                  x = 0; // 初始化
+                }
+              }
+
+            }
+          } else// 16-23，俯视图
+          {
+            if (num != 0) {
+              if (num % 64 == 0) {
+                z--; // 每过一个8*8。则y走向下一个8*8。y由0->7
+                x = 0;  // 初始化
+                y = 0;  // 初始化
+              } else {
+                y++;
+                if (y % 8 == 0)  // 走过一行
+                {
+                  x++;
+                  y = 0; // 初始化
+                }
+              }
+
+            }
+          }
+          td.id = "grid-item-" + x + y + z; // 设置 id 属性
+          // td.id = "grid-item-" + num; // 设置 id 属性
+          // td.id = "grid-item-" + i * 8 + j; // 设置 id 属性
+          td.title = "(" + x + "," + y + "," + z + ")";
+          tr.appendChild(td); // 将 td 添加到 tr 元素中
+          num++;
+        }
+        if (num >= 512)  // 只允许0-512
+        {
+          if (i < 16) // 8-15，左视图
+          {
+            x = 0;
+            y = 0;
+            z = 7;
+          } else// 16-23，俯视图
+          {
+            x = 0;
+            y = 0;
+            z = 7;
+          }
+          num = 0;
+
+        }
+        // 将 tr 元素添加到 table 中
+        table.appendChild(tr); // 将 tr 添加到表格中
+        // 将 tr 元素添加到 table 中
+        // document.getElementById("grid-table").appendChild(tr); // 将 tr 添加到表格中
+      }
+
+      // 将 table 添加到 div 中
+      div.appendChild(table);
+      // 将 div 添加到文档中
+      document.body.appendChild(div);
+
+      // if (i % 8 == 0) {
+      //   document.body.appendChild(table).appendChild(document.createElement('br'));
+      //   console.log("hi")
+      // } else {
+      //   // 将 table 元素添加到文档中
+      //   document.body.appendChild(table);
+      // }
+
+    }
+
+    // 坐标转9字节二进制
+    function Tobinary(coordinate, signal) {
+      // console.log(coordinate.toString());
+      // 获取（x,y,z）
+      // 下面这种方式存在bug，x和y会混淆
+      // let x = Number(coordinate.toString().charAt(0)); // x = 5
+      // let y = Number(coordinate.toString().charAt(1)); // y = 1
+      // let z = Number(coordinate.toString().charAt(2)); // z = 3
+
+      // 向下取整
+      x = Math.floor(coordinate / 100); // x = 5
+      y = Math.floor((coordinate % 100) / 10); // y = 1
+      z = coordinate % 10; // z = 3
+
+      // 获取（x,?,z)的元素信息
+      console.log("(" + x + "," + y + "," + z + ")")
+      let item = cube[z][x].split(""); // 将字符串转换成字符数组
+      item[item.length - y - 1] = signal; // 将第三个位置设置成 1
+      cube[z][x] = item.join(""); // 将字符数组转换成字符串
+      // console.log(cube[z][x]);
+
+      panel();  // 刷新显示面板
+    }
+
+    // 二进制字符串转16进制字符串
+    function binarytohex(binaryString) {
+      let hexString = parseInt(binaryString, 2).toString(16);
+      hexString = hexString.padStart(2, "0"); // 补齐两位
+      hexString = hexString.toUpperCase(); // 转为大写
+      return hexString;
+    }
+
+    // 格式化显示面板
+    function panel() {
+      outputBox.value = "";
+      outputBoxHex.value = "";
+      let counter = 0;
+      for (let i = cube.length - 1; i >= 0; i--) {
+        for (let j = cube[i].length - 1; j >= 0; j--) {
+          outputBox.value += cube[i][j];
+          outputBoxHex.value += binarytohex(cube[i][j]);
+          counter++;
+          if (counter === 9) {
+            outputBox.value += "\n";
+            outputBoxHex.value += "\n";
+            counter = 0;
+          }
+        }
+      }
+    }
+
+    // 监听led点击事件
+    const gridItems = document.querySelectorAll('.grid-item');
+    //td.id = "grid-item-" + i * 8 + j; // 设置 id 属性
+    // grid-item-0~7, grid-item-8~15
+    gridItems.forEach(item => {
+      item.addEventListener('click', (e) => {
+        // console.log("点击了")
+        // 当前点击坐标的颜色
+        const currentColor = window.getComputedStyle(e.target, null).getPropertyValue("background-color");
+        // console.log(currentColor)
+        // 当前点击坐标的id,id含有坐标信息
+        // console.log(e.target.id)
+        // const currentItem = document.getElementById(e.target.id); // 同一坐标
+        // 获取所有 id 为 "my-element" 的元素
+        const currentItem = document.querySelectorAll('#' + e.target.id);
+        // 获取坐标
+        let coordinate = parseInt(e.target.id.split("-")[2]); // num = 513
+        // console.log(e.target.style.backgroundColor)
+
+        if (currentColor.localeCompare("rgb(204, 204, 204)") == 0) { // 当前为灭
+          Tobinary(coordinate, "1");// 点亮
+        } else {  // 亮
+          Tobinary(coordinate, "0");// 熄灭
+        }
+
+
+        // 遍历每个元素,进行染色
+        currentItem.forEach(element => {
+          // console.log(element)
+          // 获取元素的颜色
+          const color = window.getComputedStyle(element, null).getPropertyValue("background-color");
+          // 修改颜色
+          // 当前为灭
+          if (color.localeCompare("rgb(204, 204, 204)") == 0) {
+            // 背景颜色为 rgb(204, 204, 204)
+            element.style.backgroundColor = '#fff'; // 变亮
+          } else {
+            // 背景颜色不是 rgb(204, 204, 204)
+            element.style.backgroundColor = '#ccc';
+          }
+        });
+
+      });
+    });
+
+    // 格式16进制数据
+    function datahex() {
+      let data = "";
+      let counter = 0;
+      for (let i = cube.length - 1; i >= 0; i--) {
+        data += "\"";
+        for (let j = cube[i].length - 1; j >= 0; j--) {
+          data += binarytohex(cube[i][j]);
+          counter++;
+          if (counter === 9) {
+            data += "\",";
+            counter = 0;
+          }
+        }
+      }
+      return data;
+    }
+
+    // 执行拍摄
+    button_1.addEventListener('click', () => {
+      fs.writeFileSync('cube/shoot.txt', String(datahex()), { flag: 'a+' });
+    });
+
+    // 初始化cube数组的函数
+    function clearcube() {
+      for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 9; j++) {
+          cube[i][j] = "00000000";
+          if (j == 8) {
+            cube[i][j] = "11111111";
+            let temp = cube[i][j].split(""); // 将字符串转换成字符数组
+            temp[temp.length - i - 1] = "0"; // 将第三个位置设置成 1,从后往前
+            cube[i][j] = temp.join(""); // 将字符数组转换成字符串
+          }
+        }
+      }
+    }
+
+    // 初始化led的函数,熄灭led
+    function clearled() {
+      const gridItems = document.querySelectorAll('.grid-item');
+      gridItems.forEach(item => {
+        if (item.style.backgroundColor.localeCompare("rgb(204, 204, 204)") != 0) {
+          // 背景颜色不是 rgb(204, 204, 204)
+          item.style.backgroundColor = '#ccc'; // 熄灭
+        }
+      });
+    }
+
+
+    // 执行清屏
+    button_2.addEventListener('click', () => {
+      clearcube();  // 将cube数组初始化
+      clearled();
+
+    });
+
+    // 执行导出
+    button_7.addEventListener('click', () => {
+      // 导出文件
+      // 读取拍摄文件的内容
+      fs.readFile('cube/shoot.txt', 'utf8', (err, data) => {
+        if (err) throw err;
+        // 修改文件内容,去除文件最后的逗号
+        let fileShootContent = data.substring(0, data.lastIndexOf(','));
+
+        // 将内容覆盖写入输出文件
+        fs.writeFile('cube/output.txt', fileShootContent, (err) => {
+          if (err) throw err;
+          console.log('文件已保存');
+        });
+      });
+
+      // 清空拍摄文件shoot.txt
+      fs.truncate('cube/shoot.txt', 0, (err) => {
+        if (err) {
+          console.error(err);
+        }
+      });
+    });
+
+  </script>
+</body>
+
+</html>
