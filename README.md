@@ -1,6 +1,9 @@
 # 光立方
 光立方取模程序，适用于8*8*8的光立方动画设计
 
+## 软件下载
+https://github.com/imoki/Cube/releases/download/1.2.0/Cube_v1.2.0.7z
+
 ## 使用说明  
 1. 鼠标移动到led上方会显示坐标信息，点击则点亮led。  
 按钮旁边的字母代表快捷键，如拍摄(S),则"拍摄"的快捷键为Ctrl+S  
